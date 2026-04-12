@@ -8,7 +8,7 @@ from random import uniform
 import pygame as pg
 
 import config as C
-from sprites import Asteroid, Ship, UFO
+from sprites import Asteroid, ShieldPickup, Ship, UFO
 from utils import Vec, rand_edge_pos, rand_unit_vec
 
 
@@ -20,6 +20,7 @@ class World:
         self.ufo_bullets = pg.sprite.Group()
         self.asteroids = pg.sprite.Group()
         self.ufos = pg.sprite.Group()
+        self.pickups = pg.sprite.Group()
         self.all_sprites = pg.sprite.Group(self.ship)
         self.score = 0
         self.lives = C.START_LIVES
@@ -30,6 +31,9 @@ class World:
         self.game_over = False  # Sinaliza fim de jogo para a cena principal
         self.combo_timer = 0.0
         self.combo_chain = 0
+        self._shield_quota_remaining = 0
+        self._shield_spawn_cap = 2
+        self._shield_spawn_timer = 0.0
 
     def start_wave(self):
         # Spawn a new asteroid wave with difficulty based on the current round.
@@ -43,6 +47,48 @@ class World:
             speed = uniform(C.AST_VEL_MIN, C.AST_VEL_MAX)
             vel = Vec(math.cos(ang), math.sin(ang)) * speed
             self.spawn_asteroid(pos, vel, "L")
+        self._shield_quota_remaining = 1 if self.wave <= 3 else 2
+        self._shield_spawn_cap = 1 if self.wave <= 3 else C.SHIELD_MAX_PICKUPS
+        self._shield_spawn_timer = uniform(
+            C.SHIELD_SPAWN_DELAY_MIN, C.SHIELD_SPAWN_DELAY_MAX
+        )
+
+    def _random_shield_pickup_pos(self) -> Vec | None:
+        others = [p.pos for p in self.pickups]
+        for _ in range(100):
+            pos = Vec(uniform(60, C.WIDTH - 60), uniform(60, C.HEIGHT - 60))
+            if (pos - self.ship.pos).length() < 160:
+                continue
+            if all((pos - op).length() >= C.SHIELD_PICKUP_SEPARATION for op in others):
+                return pos
+        return None
+
+    def _spawn_one_shield_pickup(self) -> bool:
+        pos = self._random_shield_pickup_pos()
+        if pos is None:
+            return False
+        p = ShieldPickup(pos)
+        self.pickups.add(p)
+        self.all_sprites.add(p)
+        return True
+
+    def _tick_shield_pickup_spawns(self, dt: float):
+        if self._shield_quota_remaining <= 0:
+            return
+        self._shield_spawn_timer -= dt
+        if self._shield_spawn_timer > 0:
+            return
+        if len(self.pickups) >= self._shield_spawn_cap:
+            self._shield_spawn_timer = 0.25
+            return
+        if not self._spawn_one_shield_pickup():
+            self._shield_spawn_timer = 0.35
+            return
+        self._shield_quota_remaining -= 1
+        if self._shield_quota_remaining > 0:
+            self._shield_spawn_timer = uniform(
+                C.SHIELD_SPAWN_DELAY_MIN, C.SHIELD_SPAWN_DELAY_MAX
+            )
 
     def spawn_asteroid(self, pos: Vec, vel: Vec, size: str):
         # Create an asteroid and register it in the world groups.
@@ -114,6 +160,8 @@ class World:
             self.ufo_timer = C.UFO_SPAWN_EVERY
 
         self.handle_collisions()
+        self._pickup_collisions()
+        self._tick_shield_pickup_spawns(dt)
 
         if self.combo_timer > 0:
             self.combo_timer -= dt
@@ -148,7 +196,7 @@ class World:
         for ast, _ in ufo_hits.items():
             self.split_asteroid(ast)
 
-        if self.ship.invuln <= 0 and self.safe <= 0:
+        if self.ship.invuln <= 0 and self.safe <= 0 and self.ship.shield_time <= 0:
             for ast in self.asteroids:
                 if (ast.pos - self.ship.pos).length() < (ast.r + self.ship.r):
                     self.ship_die()
@@ -172,6 +220,12 @@ class World:
                     ufo.kill()
                     b.kill()
 
+    def _pickup_collisions(self):
+        for p in list(self.pickups):
+            if (p.pos - self.ship.pos).length() < (p.r + self.ship.r):
+                self.ship.shield_time = max(self.ship.shield_time, C.SHIELD_DURATION)
+                p.kill()
+
     def split_asteroid(self, ast: Asteroid):
         # Destroy an asteroid, award score, and spawn its smaller fragments.
         self._add_combo_kill_score(C.AST_SIZES[ast.size]["score"])
@@ -193,6 +247,7 @@ class World:
         self.ship.pos.xy = (C.WIDTH / 2, C.HEIGHT / 2)
         self.ship.vel.xy = (0, 0)
         self.ship.angle = -90
+        self.ship.shield_time = 0.0
         self.ship.invuln = C.SAFE_SPAWN_TIME
         self.safe = C.SAFE_SPAWN_TIME
 

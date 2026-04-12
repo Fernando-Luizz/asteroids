@@ -8,7 +8,7 @@ from random import uniform
 import pygame as pg
 
 import config as C
-from utils import Vec, angle_to_vec, draw_circle, draw_poly, wrap_pos
+from utils import Vec, angle_to_vec, draw_circle, draw_poly, rand_unit_vec, wrap_pos
 
 
 class Bullet(pg.sprite.Sprite):
@@ -104,6 +104,7 @@ class Ship(pg.sprite.Sprite):
         self.angle = -90.0
         self.cool = 0.0
         self.invuln = 0.0
+        self.shield_time = 0.0
         self.alive = True
         self.r = C.SHIP_RADIUS
         self.rect = pg.Rect(0, 0, self.r * 2, self.r * 2)
@@ -140,6 +141,8 @@ class Ship(pg.sprite.Sprite):
             self.cool -= dt
         if self.invuln > 0:
             self.invuln -= dt
+        if self.shield_time > 0:
+            self.shield_time -= dt
         self.pos += self.vel * dt
         self.pos = wrap_pos(self.pos)
         self.rect.center = self.pos
@@ -153,8 +156,77 @@ class Ship(pg.sprite.Sprite):
         p2 = self.pos + left * self.r * 0.9
         p3 = self.pos + right * self.r * 0.9
         draw_poly(surf, [p1, p2, p3])
-        if self.invuln > 0 and int(self.invuln * 10) % 2 == 0:
+        if self.shield_time > 0:
+            pulse = int(self.shield_time * 12) % 2
+            ro = self.r + 10 + pulse * 3
+            pg.draw.circle(surf, C.SHIELD_COLOR, self.pos, ro, width=2)
+            pg.draw.circle(surf, C.SHIELD_COLOR, self.pos, ro + 7, width=1)
+        elif self.invuln > 0 and int(self.invuln * 10) % 2 == 0:
             draw_circle(surf, self.pos, self.r + 6)
+
+
+class ShieldPickup(pg.sprite.Sprite):
+    def __init__(self, pos: Vec):
+        super().__init__()
+        self.pos = Vec(pos)
+        self.vel = rand_unit_vec() * uniform(22.0, 48.0)
+        self._base_r = C.SHIELD_PICKUP_RADIUS
+        self.ttl = C.SHIELD_PICKUP_LIFETIME
+        self.r = self._base_r
+        self._draw_color = C.SHIELD_COLOR
+        self._draw_visible = True
+        self.rect = pg.Rect(0, 0, int(self.r * 2), int(self.r * 2))
+
+    def update(self, dt: float):
+        self.pos += self.vel * dt
+        self.pos = wrap_pos(self.pos)
+        self.ttl -= dt
+        if self.ttl <= 0:
+            self.kill()
+            return
+
+        warn = C.SHIELD_PICKUP_WARN_TIME
+        if self.ttl > warn:
+            scale = 1.0
+            self._draw_color = C.SHIELD_COLOR
+            self._draw_visible = True
+        else:
+            urgency = 1.0 - max(0.0, self.ttl / warn)
+            scale = 1.0 - urgency * 0.48
+            blink_rate = 10.0 + urgency * 16.0
+            self._draw_visible = int(self.ttl * blink_rate) % 2 == 0
+            c = C.SHIELD_COLOR
+            self._draw_color = (
+                min(255, int(c[0] + (255 - c[0]) * urgency * 0.9)),
+                min(255, int(c[1] + (255 - c[1]) * urgency * 0.35)),
+                max(40, int(c[2] * (1.0 - urgency * 0.55))),
+            )
+        self.r = self._base_r * scale
+        side = max(4, int(self.r * 2))
+        self.rect = pg.Rect(0, 0, side, side)
+        self.rect.center = self.pos
+
+    def draw(self, surf: pg.Surface):
+        if not self._draw_visible:
+            return
+        col = self._draw_color
+        line_w = 2 if self.ttl > C.SHIELD_PICKUP_WARN_TIME else 1
+        pg.draw.circle(surf, col, self.pos, self.r, width=max(1, line_w))
+        a = self.r * 0.55
+        pg.draw.line(
+            surf,
+            col,
+            self.pos + Vec(-a, 0),
+            self.pos + Vec(a, 0),
+            width=max(1, line_w),
+        )
+        pg.draw.line(
+            surf,
+            col,
+            self.pos + Vec(0, -a),
+            self.pos + Vec(0, a),
+            width=max(1, line_w),
+        )
 
 
 class UFO(pg.sprite.Sprite):
