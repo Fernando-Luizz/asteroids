@@ -28,6 +28,8 @@ class World:
         self.safe = C.SAFE_SPAWN_TIME
         self.ufo_timer = C.UFO_SPAWN_EVERY
         self.game_over = False  # Sinaliza fim de jogo para a cena principal
+        self.combo_timer = 0.0
+        self.combo_chain = 0
 
     def start_wave(self):
         # Spawn a new asteroid wave with difficulty based on the current round.
@@ -81,6 +83,20 @@ class World:
         # Trigger the ship hyperspace action and apply its score penalty.
         self.ship.hyperspace()
         self.score = max(0, self.score - C.HYPERSPACE_COST)
+        self._reset_combo()
+
+    def _reset_combo(self):
+        self.combo_timer = 0.0
+        self.combo_chain = 0
+
+    def _add_combo_kill_score(self, base: int) -> None:
+        if self.combo_timer > 0:
+            self.combo_chain += 1
+        else:
+            self.combo_chain = 1
+        self.combo_chain = min(self.combo_chain, C.COMBO_MAX_MULT)
+        self.combo_timer = C.COMBO_WINDOW
+        self.score += base * self.combo_chain
 
     def update(self, dt: float, keys):
         # Update the world simulation, timers, enemy behavior, and progression.
@@ -98,6 +114,11 @@ class World:
             self.ufo_timer = C.UFO_SPAWN_EVERY
 
         self.handle_collisions()
+
+        if self.combo_timer > 0:
+            self.combo_timer -= dt
+            if self.combo_timer <= 0:
+                self._reset_combo()
 
         if not self.asteroids and self.wave_cool <= 0:
             self.start_wave()
@@ -147,13 +168,13 @@ class World:
                 if (ufo.pos - b.pos).length() < (ufo.r + b.r):
                     score = (C.UFO_SMALL["score"] if ufo.small
                              else C.UFO_BIG["score"])
-                    self.score += score
+                    self._add_combo_kill_score(score)
                     ufo.kill()
                     b.kill()
 
     def split_asteroid(self, ast: Asteroid):
         # Destroy an asteroid, award score, and spawn its smaller fragments.
-        self.score += C.AST_SIZES[ast.size]["score"]
+        self._add_combo_kill_score(C.AST_SIZES[ast.size]["score"])
         split = C.AST_SIZES[ast.size]["split"]
         pos = Vec(ast.pos)
         ast.kill()
@@ -164,6 +185,7 @@ class World:
 
     def ship_die(self):
         # Remove uma vida; sinaliza game over ou reposiciona a nave.
+        self._reset_combo()
         self.lives -= 1
         if self.lives <= 0:
             self.game_over = True  # Game.run() detecta e muda de cena
@@ -183,3 +205,8 @@ class World:
         txt = f"SCORE {self.score:06d}   LIVES {self.lives}   WAVE {self.wave}"
         label = font.render(txt, True, C.WHITE)
         surf.blit(label, (10, 10))
+        if self.combo_chain >= 2 and self.combo_timer > 0:
+            cl = font.render(f"COMBO x{self.combo_chain}", True, C.COMBO_COLOR)
+            surf.blit(cl, (10, 28))
+            bw = max(1, int(100 * (self.combo_timer / C.COMBO_WINDOW)))
+            pg.draw.rect(surf, C.COMBO_COLOR, (10, 48, bw, 4))
