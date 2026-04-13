@@ -61,13 +61,15 @@ class UfoBullet(pg.sprite.Sprite):
 
 class Asteroid(pg.sprite.Sprite):
     # Initialize an asteroid with its position, velocity, and size profile.
-    def __init__(self, pos: Vec, vel: Vec, size: str):
+    def __init__(self, pos: Vec, vel: Vec, size: str, explosive: bool = False):
         super().__init__()
         self.pos = Vec(pos)
         self.vel = Vec(vel)
         self.size = size
+        self.explosive = explosive
         self.r = C.AST_SIZES[size]["r"]
         self.poly = self._make_poly()
+        self._pulse = 0.0          # fase do pulso visual
         self.rect = pg.Rect(0, 0, self.r * 2, self.r * 2)
 
     def _make_poly(self):
@@ -87,13 +89,60 @@ class Asteroid(pg.sprite.Sprite):
         # Move the asteroid and wrap it across the screen.
         self.pos += self.vel * dt
         self.pos = wrap_pos(self.pos)
+        self._pulse = (self._pulse + dt * 4.0) % (2 * math.pi)
         self.rect.center = self.pos
 
     def draw(self, surf: pg.Surface):
         # Draw the asteroid outline on the target surface.
         pts = [(self.pos + p) for p in self.poly]
-        pg.draw.polygon(surf, C.WHITE, pts, width=1)
+        color = C.WHITE
+        if self.explosive:
+            # pulsa entre laranja e branco
+            t = (math.sin(self._pulse) + 1) / 2          # 0..1
+            color = (
+                int(C.EXPLOSIVE_COLOR[0] * t + C.WHITE[0] * (1 - t)),
+                int(C.EXPLOSIVE_COLOR[1] * t + C.WHITE[1] * (1 - t)),
+                int(C.EXPLOSIVE_COLOR[2] * t + C.WHITE[2] * (1 - t)),
+            )
+            # pequena cruz central para indicar perigo
+            pg.draw.line(surf, color,
+                         (int(self.pos.x) - 5, int(self.pos.y)),
+                         (int(self.pos.x) + 5, int(self.pos.y)), 1)
+            pg.draw.line(surf, color,
+                         (int(self.pos.x), int(self.pos.y) - 5),
+                         (int(self.pos.x), int(self.pos.y) + 5), 1)
+        pg.draw.polygon(surf, color, pts, width=1)
 
+
+class Explosion(pg.sprite.Sprite):
+    """Onda de choque visual gerada por um asteroide explosivo."""
+    def __init__(self, pos: Vec):
+        super().__init__()
+        self.pos = Vec(pos)
+        self.ttl = C.EXPLOSION_DURATION
+        self.max_ttl = C.EXPLOSION_DURATION
+        self.r = C.EXPLOSION_RADIUS
+        self.rect = pg.Rect(0, 0, self.r * 2, self.r * 2)
+        self.rect.center = self.pos
+
+    def update(self, dt: float):
+        self.ttl -= dt
+        if self.ttl <= 0:
+            self.kill()
+
+    def draw(self, surf: pg.Surface):
+        progress = 1.0 - max(0.0, self.ttl / self.max_ttl)   # 0→1
+        current_r = int(self.r * progress)
+        if current_r < 2:
+            return
+        alpha = int(200 * (1.0 - progress))
+        col = C.EXPLOSION_COLOR
+        # anel externo
+        pg.draw.circle(surf, col, self.pos, current_r, width=2)
+        # anel interno mais tênue
+        inner = max(1, int(current_r * 0.6))
+        faded = (col[0], col[1] // 2, col[2] // 4)
+        pg.draw.circle(surf, faded, self.pos, inner, width=1)
 
 class Ship(pg.sprite.Sprite):
     # Initialize the player ship and its gameplay state.
