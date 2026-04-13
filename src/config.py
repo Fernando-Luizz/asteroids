@@ -55,6 +55,13 @@ GRAY = (120, 120, 120)
 BLACK = (0, 0, 0)
 COMBO_COLOR = (255, 210, 90)
 
+# Asteroide explosivo
+EXPLOSIVE_CHANCE   = 0.25        # Probabilidade de um asteroide ser explosivo
+EXPLOSION_RADIUS   = 110         # Raio da onda de choque
+EXPLOSION_DURATION = 0.35        # Duração visual da explosão 
+EXPLOSION_COLOR    = (255, 160, 40)
+EXPLOSIVE_COLOR    = (255, 130, 50)  # Cor do contorno do asteroide explosivo
+
 RANDOM_SEED = None
 
 # Duração do fade-in da tela de game over (segundos)

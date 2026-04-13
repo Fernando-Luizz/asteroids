@@ -4,11 +4,11 @@
 
 import math
 from random import uniform
-
+import random
 import pygame as pg
 
 import config as C
-from sprites import Asteroid, ShieldPickup, Ship, UFO
+from sprites import Asteroid, ShieldPickup, Ship, UFO, Explosion
 from utils import Vec, rand_edge_pos, rand_unit_vec
 
 
@@ -21,6 +21,7 @@ class World:
         self.asteroids = pg.sprite.Group()
         self.ufos = pg.sprite.Group()
         self.pickups = pg.sprite.Group()
+        self.explosions = pg.sprite.Group()
         self.all_sprites = pg.sprite.Group(self.ship)
         self.score = 0
         self.lives = C.START_LIVES
@@ -34,6 +35,7 @@ class World:
         self._shield_quota_remaining = 0
         self._shield_spawn_cap = 2
         self._shield_spawn_timer = 0.0
+        
 
     def start_wave(self):
         # Spawn a new asteroid wave with difficulty based on the current round.
@@ -90,12 +92,27 @@ class World:
                 C.SHIELD_SPAWN_DELAY_MIN, C.SHIELD_SPAWN_DELAY_MAX
             )
 
-    def spawn_asteroid(self, pos: Vec, vel: Vec, size: str):
+    def spawn_asteroid(self, pos: Vec, vel: Vec, size: str, explosive: bool = False):
         # Create an asteroid and register it in the world groups.
-        a = Asteroid(pos, vel, size)
+
+        if not explosive and size in ("L", "M"):
+            explosive = random.random() < C.EXPLOSIVE_CHANCE
+        a = Asteroid(pos, vel, size, explosive=explosive)
         self.asteroids.add(a)
         self.all_sprites.add(a)
 
+    def _trigger_explosion(self, pos: Vec):
+        # Triggers a shockwave explosion at the given position.
+        exp = Explosion(pos)
+        self.explosions.add(exp)
+        self.all_sprites.add(exp)
+        for ast in list(self.asteroids):
+            if (ast.pos - pos).length() < C.EXPLOSION_RADIUS:
+                self.split_asteroid(ast)
+        # Dano na nave (sem escudo)
+        if (self.ship.pos - pos).length() < C.EXPLOSION_RADIUS:
+            if self.ship.invuln <= 0 and self.ship.shield_time <= 0 and self.safe <= 0:
+                self.ship_die()
     def spawn_ufo(self):
         # Spawn a single UFO at a screen edge and send it across the playfield.
         if self.ufos:
@@ -231,11 +248,14 @@ class World:
         self._add_combo_kill_score(C.AST_SIZES[ast.size]["score"])
         split = C.AST_SIZES[ast.size]["split"]
         pos = Vec(ast.pos)
+        was_explosive = ast.explosive
         ast.kill()
         for s in split:
             dirv = rand_unit_vec()
             speed = uniform(C.AST_VEL_MIN, C.AST_VEL_MAX) * 1.2
             self.spawn_asteroid(pos, dirv * speed, s)
+        if was_explosive:
+            self._trigger_explosion(pos)
 
     def ship_die(self):
         # Remove uma vida; sinaliza game over ou reposiciona a nave.
