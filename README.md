@@ -6,6 +6,26 @@ Este projeto consiste em uma extensão do jogo clássico Asteroids, desenvolvido
 
 O objetivo deste trabalho é enriquecer a experiência do jogador por meio da implementação de novas mecânicas, buscando aumentar a variedade, a estratégia e a dinâmica do jogo, sem descaracterizar a proposta original.
 
+Na pasta `C4` estão os diagramas da arquitetura no [modelo C4](https://c4model.com/): primeiro o contexto do sistema, depois o container da aplicação desktop e por fim os componentes principais do código (`main`, `game`, `systems`, `sprites`, etc.).
+
+**Contexto**
+
+Mostra o jogo como um sistema único e quem interage com ele: o jogador e, em alto nível, o ambiente que oferece teclado e vídeo. Serve para entender o produto sem entrar em Python ou em arquivos.
+
+![Diagrama C4 - contexto](C4/ASTEROIDS%20NIVEL%2001%20-%20CONTEXTO.drawio.png)
+
+**Container**
+
+Abre o sistema e mostra que tudo roda numa aplicação desktop feita em Python 3 com Pygame: um único programa com loop, entrada, simulação e desenho. É o nível em que ainda não aparecem `main.py` ou `systems.py`.
+
+![Diagrama C4 - container](C4/ASTEROIDS%20%20NIVEL%2002%20-%20CONTAINER.drawio.png)
+
+**Componentes**
+
+Detalha o interior dessa aplicação: módulos do repositório, quem chama quem e onde ficam regras, entidades, constantes e utilitários. É o diagrama mais próximo da organização real do código em `src`.
+
+![Diagrama C4 - componentes](C4/ASTEROIDS%20%20NIVEL%2003-%20COMPONENTE.drawio.png)
+
 ---
 
 ## Ideia geral das melhorias
