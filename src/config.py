@@ -64,5 +64,21 @@ EXPLOSIVE_COLOR    = (255, 130, 50)  # Cor do contorno do asteroide explosivo
 
 RANDOM_SEED = None
 
+# Power-up de tiro
+WEAPON_PICKUP_CHANCE       = 0.30        
+WEAPON_PICKUP_LIFETIME     = 12.0        
+WEAPON_PICKUP_WARN_TIME    = 3.0         
+WEAPON_PICKUP_RADIUS       = 13
+WEAPON_PICKUP_COLOR        = (255, 220, 80)   
+WEAPON_PICKUP_SEPARATION   = 120
+WEAPON_MAX_PICKUPS         = 2
+
+WEAPON_DURATION            = 5.0         # Duração do efeito 
+# Modos de arma: "double", "triple", "rapid"
+WEAPON_DOUBLE_SPREAD       = 14        
+WEAPON_TRIPLE_SPREAD       = 20        
+WEAPON_RAPID_FIRE_RATE     = 0.06        # cooldown no modo rapido
+WEAPON_RAPID_MAX_BULLETS   = 8
+
 # Duração do fade-in da tela de game over (segundos)
 GAME_OVER_FADE_DURATION = 1.5

@@ -157,6 +157,8 @@ class Ship(pg.sprite.Sprite):
         self.alive = True
         self.r = C.SHIP_RADIUS
         self.rect = pg.Rect(0, 0, self.r * 2, self.r * 2)
+        self.weapon_mode = None      # "double" | "triple" | "rapid" | None
+        self.weapon_time = 0.0
 
     def control(self, keys: pg.key.ScancodeWrapper, dt: float):
         # Apply rotation, thrust, and friction from the current input state.
@@ -168,21 +170,39 @@ class Ship(pg.sprite.Sprite):
             self.vel += angle_to_vec(self.angle) * C.SHIP_THRUST * dt
         self.vel *= C.SHIP_FRICTION
 
-    def fire(self) -> Bullet | None:
+    def fire(self) -> list["Bullet"]:
         # Spawn a player bullet when the fire cooldown allows it.
         if self.cool > 0:
-            return None
-        dirv = angle_to_vec(self.angle)
-        pos = self.pos + dirv * (self.r + 6)
-        vel = self.vel + dirv * C.SHIP_BULLET_SPEED
-        self.cool = C.SHIP_FIRE_RATE
-        return Bullet(pos, vel)
+            return []
 
-    def hyperspace(self):
-        # Teleport the ship to a random location and reset its momentum.
-        self.pos = Vec(uniform(0, C.WIDTH), uniform(0, C.HEIGHT))
-        self.vel.xy = (0, 0)
-        self.invuln = 1.0
+        fire_rate = (C.WEAPON_RAPID_FIRE_RATE
+                    if self.weapon_mode == "rapid"
+                    else C.SHIP_FIRE_RATE)
+        self.cool = fire_rate
+
+        dirv = angle_to_vec(self.angle)
+        base_vel = self.vel + dirv * C.SHIP_BULLET_SPEED
+
+        if self.weapon_mode == "double":
+            offsets = [-C.WEAPON_DOUBLE_SPREAD / 2,
+                        C.WEAPON_DOUBLE_SPREAD / 2]
+        elif self.weapon_mode == "triple":
+            half = C.WEAPON_TRIPLE_SPREAD / 2
+            offsets = [-half, 0, half]
+        else:                             
+            offsets = [0]
+
+        bullets = []
+        for angle_off in offsets:
+            d = angle_to_vec(self.angle + angle_off)
+            pos = self.pos + d * (self.r + 6)
+            vel = self.vel + d * C.SHIP_BULLET_SPEED
+            bullets.append(Bullet(pos, vel))
+        return bullets
+    def apply_weapon(self, mode: str):
+        # Activates or refreshes the weapon power-up duration.
+        self.weapon_mode = mode
+        self.weapon_time = C.WEAPON_DURATION
 
     def update(self, dt: float):
         # Advance cooldowns, move the ship, and wrap it on screen.
@@ -192,9 +212,22 @@ class Ship(pg.sprite.Sprite):
             self.invuln -= dt
         if self.shield_time > 0:
             self.shield_time -= dt
+        if self.weapon_time > 0:
+            self.weapon_time -= dt
+            if self.weapon_time <= 0:
+                self.weapon_mode = None
+                self.weapon_time = 0.0
         self.pos += self.vel * dt
         self.pos = wrap_pos(self.pos)
         self.rect.center = self.pos
+
+    def hyperspace(self):
+        # Teleport the ship to a random location and reset its momentum.
+        self.pos = Vec(uniform(0, C.WIDTH), uniform(0, C.HEIGHT))
+        self.vel.xy = (0, 0)
+        self.invuln = 1.0
+
+
 
     def draw(self, surf: pg.Surface):
         # Draw the ship and its temporary invulnerability indicator.
@@ -205,6 +238,7 @@ class Ship(pg.sprite.Sprite):
         p2 = self.pos + left * self.r * 0.9
         p3 = self.pos + right * self.r * 0.9
         draw_poly(surf, [p1, p2, p3])
+
         if self.shield_time > 0:
             pulse = int(self.shield_time * 12) % 2
             ro = self.r + 10 + pulse * 3
@@ -212,6 +246,11 @@ class Ship(pg.sprite.Sprite):
             pg.draw.circle(surf, C.SHIELD_COLOR, self.pos, ro + 7, width=1)
         elif self.invuln > 0 and int(self.invuln * 10) % 2 == 0:
             draw_circle(surf, self.pos, self.r + 6)
+
+        if self.weapon_mode and self.weapon_time > 0:
+            pulse = int(self.weapon_time * 8) % 2
+            rw = self.r + 14 + pulse * 2
+            pg.draw.circle(surf, C.WEAPON_PICKUP_COLOR, self.pos, rw, width=1)
 
 
 class ShieldPickup(pg.sprite.Sprite):
@@ -277,7 +316,72 @@ class ShieldPickup(pg.sprite.Sprite):
             width=max(1, line_w),
         )
 
+class WeaponPickup(pg.sprite.Sprite):
+    # Ground item that grants a temporary weapon buff
+    MODES = ("double", "triple", "rapid")
+    _LABELS = {"double": "2x", "triple": "3x", "rapid": ">>"}
 
+    def __init__(self, pos: Vec):
+        super().__init__()
+        import random
+        self.pos = Vec(pos)
+        self.vel = rand_unit_vec() * uniform(20.0, 45.0)
+        self.mode = random.choice(self.MODES)
+        self._base_r = C.WEAPON_PICKUP_RADIUS
+        self.r = self._base_r
+        self.ttl = C.WEAPON_PICKUP_LIFETIME
+        self._draw_color = C.WEAPON_PICKUP_COLOR
+        self._draw_visible = True
+        self.rect = pg.Rect(0, 0, int(self.r * 2), int(self.r * 2))
+
+    def update(self, dt: float):
+        self.pos += self.vel * dt
+        self.pos = wrap_pos(self.pos)
+        self.ttl -= dt
+        if self.ttl <= 0:
+            self.kill()
+            return
+
+        warn = C.WEAPON_PICKUP_WARN_TIME
+        if self.ttl > warn:
+            self._draw_color = C.WEAPON_PICKUP_COLOR
+            self._draw_visible = True
+            self.r = self._base_r
+        else:
+            urgency = 1.0 - max(0.0, self.ttl / warn)
+            self.r = self._base_r * (1.0 - urgency * 0.45)
+            blink_rate = 10.0 + urgency * 18.0
+            self._draw_visible = int(self.ttl * blink_rate) % 2 == 0
+            c = C.WEAPON_PICKUP_COLOR
+            self._draw_color = (
+                c[0],
+                min(255, int(c[1] * (1.0 - urgency * 0.5))),
+                max(0,   int(c[2] * (1.0 - urgency * 0.9))),
+            )
+
+        side = max(4, int(self.r * 2))
+        self.rect = pg.Rect(0, 0, side, side)
+        self.rect.center = self.pos
+
+    def draw(self, surf: pg.Surface):
+        if not self._draw_visible:
+            return
+        col = self._draw_color
+        r = int(self.r)
+        # Losango (rotated square) como contorno
+        pts = [
+            (int(self.pos.x),     int(self.pos.y) - r),
+            (int(self.pos.x) + r, int(self.pos.y)),
+            (int(self.pos.x),     int(self.pos.y) + r),
+            (int(self.pos.x) - r, int(self.pos.y)),
+        ]
+        pg.draw.polygon(surf, col, pts, width=2)
+        # Label no centro
+        label = self._LABELS[self.mode]
+        font = pg.font.SysFont("consolas", max(8, int(self.r * 0.85)))
+        surf_txt = font.render(label, True, col)
+        rect_txt = surf_txt.get_rect(center=(int(self.pos.x), int(self.pos.y)))
+        surf.blit(surf_txt, rect_txt)
 class UFO(pg.sprite.Sprite):
     # Initialize a UFO enemy with its size profile and movement state.
     def __init__(self, pos: Vec, small: bool):
