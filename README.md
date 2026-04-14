@@ -44,7 +44,7 @@ Impacto: reduz mortes inesperadas e oferece ao jogador momentos de maior seguran
 
 ---
 
-### 3. Asteroide explosivo
+### 3. Asteroide explosivo - Gustavo Almada
 
 Alguns asteroides possuem comportamento especial. Ao serem destruídos, geram uma explosão que afeta outros asteroides próximos.
 
@@ -54,7 +54,7 @@ Impacto: adiciona uma camada estratégica ao jogo e cria situações de alto imp
 
 ---
 
-### 4. Power-up de tiro
+### 4. Power-up de tiro - Gustavo Almada
 
 Determinados itens concedem melhorias temporárias ao disparo da nave.
 
@@ -64,7 +64,7 @@ Impacto: aumenta a sensação de progresso e torna o combate mais variado.
 
 ---
 
-### 5. Mina espacial
+### 5. Mina espacial - Gustavo Almada
 
 A nave pode soltar uma mina que permanece na tela por um tempo limitado.
 
