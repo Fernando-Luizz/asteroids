@@ -80,5 +80,17 @@ WEAPON_TRIPLE_SPREAD       = 20
 WEAPON_RAPID_FIRE_RATE     = 0.06        # cooldown no modo rapido
 WEAPON_RAPID_MAX_BULLETS   = 8
 
+# Mina espacial
+MINE_RADIUS           = 10
+MINE_TRIGGER_RADIUS   = 38
+MINE_EXPLOSION_RADIUS = 120
+MINE_LIFETIME         = 10.0
+MINE_WARN_TIME        = 3.0
+MINE_BOOM_DURATION    = 0.4
+MINE_DEPLOY_COOLDOWN  = 2.0
+MINE_MAX_ACTIVE       = 3
+MINE_COLOR            = (220, 80,  80)
+MINE_INNER_COLOR      = (255, 160, 60)
+
 # Duração do fade-in da tela de game over (segundos)
 GAME_OVER_FADE_DURATION = 1.5

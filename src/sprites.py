@@ -159,6 +159,7 @@ class Ship(pg.sprite.Sprite):
         self.rect = pg.Rect(0, 0, self.r * 2, self.r * 2)
         self.weapon_mode = None      # "double" | "triple" | "rapid" | None
         self.weapon_time = 0.0
+        self.mine_cool   = 0.0 
 
     def control(self, keys: pg.key.ScancodeWrapper, dt: float):
         # Apply rotation, thrust, and friction from the current input state.
@@ -203,7 +204,19 @@ class Ship(pg.sprite.Sprite):
         # Activates or refreshes the weapon power-up duration.
         self.weapon_mode = mode
         self.weapon_time = C.WEAPON_DURATION
-
+    def drop_mine(self) -> "Mine | None":
+        # Spawns a mine at the ship's position if off cooldown.
+        if self.mine_cool > 0:
+            return None
+        self.mine_cool = C.MINE_DEPLOY_COOLDOWN
+        return Mine(self.pos)
+    
+    def hyperspace(self):
+        # Teleport the ship to a random location and reset its momentum.
+        self.pos = Vec(uniform(0, C.WIDTH), uniform(0, C.HEIGHT))
+        self.vel.xy = (0, 0)
+        self.invuln = 1.0
+ 
     def update(self, dt: float):
         # Advance cooldowns, move the ship, and wrap it on screen.
         if self.cool > 0:
@@ -217,15 +230,11 @@ class Ship(pg.sprite.Sprite):
             if self.weapon_time <= 0:
                 self.weapon_mode = None
                 self.weapon_time = 0.0
+        if self.mine_cool > 0:
+            self.mine_cool -= dt
         self.pos += self.vel * dt
         self.pos = wrap_pos(self.pos)
         self.rect.center = self.pos
-
-    def hyperspace(self):
-        # Teleport the ship to a random location and reset its momentum.
-        self.pos = Vec(uniform(0, C.WIDTH), uniform(0, C.HEIGHT))
-        self.vel.xy = (0, 0)
-        self.invuln = 1.0
 
 
 
@@ -315,6 +324,98 @@ class ShieldPickup(pg.sprite.Sprite):
             self.pos + Vec(0, a),
             width=max(1, line_w),
         )
+
+class Mine(pg.sprite.Sprite):
+    # Space mine: detonates upon impact with an enemy or when its timer expires.
+ 
+    # Estados internos da mina
+    _STATE_ARMED   = "armed"    
+    _STATE_WARN    = "warn"     
+    _STATE_BOOM    = "boom"     
+ 
+    def __init__(self, pos: Vec):
+        super().__init__()
+        self.pos      = Vec(pos)
+        self.r        = C.MINE_RADIUS
+        self.ttl      = C.MINE_LIFETIME
+        self._boom_t  = 0.0          # timer da animação de explosão
+        self._pulse   = 0.0          # fase do pulso visual
+        self._state   = self._STATE_ARMED
+        self.exploded = False      
+        self.rect     = pg.Rect(0, 0, self.r * 2, self.r * 2)
+        self.rect.center = self.pos
+ 
+    def detonate(self):
+        # Manual detonation trigger for collision handling.
+        if self._state != self._STATE_BOOM:
+            self._state   = self._STATE_BOOM
+            self._boom_t  = C.MINE_BOOM_DURATION
+            self.exploded = True    
+ 
+    def update(self, dt: float):
+        self._pulse = (self._pulse + dt * 5.0) % (2 * math.pi)
+ 
+        if self._state == self._STATE_BOOM:
+            self._boom_t -= dt
+            if self._boom_t <= 0:
+                self.kill()
+            return
+ 
+        # Contagem regressiva normal
+        self.ttl -= dt
+        if self.ttl <= C.MINE_WARN_TIME and self._state == self._STATE_ARMED:
+            self._state = self._STATE_WARN
+        if self.ttl <= 0:
+            self.detonate()
+            return
+ 
+        self.rect.center = self.pos
+ 
+    def draw(self, surf: pg.Surface):
+        if self._state == self._STATE_BOOM:
+            progress = 1.0 - max(0.0, self._boom_t / C.MINE_BOOM_DURATION)
+            boom_r = int(C.MINE_EXPLOSION_RADIUS * progress)
+            if boom_r >= 2:
+                pg.draw.circle(surf, C.MINE_COLOR, self.pos, boom_r, width=2)
+                pg.draw.circle(surf, C.MINE_INNER_COLOR, self.pos,
+                               max(1, int(boom_r * 0.55)), width=1)
+            return
+
+        if self._state == self._STATE_WARN:
+            urgency   = 1.0 - max(0.0, self.ttl / C.MINE_WARN_TIME)
+            blink_hz  = 6.0 + urgency * 14.0
+            if int(self.ttl * blink_hz) % 2 == 0:
+                return                   
+ 
+        r   = self.r
+        col = C.MINE_COLOR
+ 
+
+        pts = []
+        for i in range(6):
+            ang = math.radians(i * 60 - 30)
+            pts.append((int(self.pos.x + r * math.cos(ang)),
+                         int(self.pos.y + r * math.sin(ang))))
+        pg.draw.polygon(surf, col, pts, width=2)
+ 
+        spike = r * 0.55
+        for i in range(6):
+            ang = math.radians(i * 60 - 30)
+            tip = Vec(self.pos.x + (r + spike) * math.cos(ang),
+                      self.pos.y + (r + spike) * math.sin(ang))
+            base = Vec(self.pos.x + r * math.cos(ang),
+                       self.pos.y + r * math.sin(ang))
+            pg.draw.line(surf, col, base, tip, 1)
+ 
+        pulse_r = max(1, int(2 + 1.5 * (math.sin(self._pulse) + 1) / 2))
+        pg.draw.circle(surf, col, self.pos, pulse_r)
+ 
+        det_r = int(C.MINE_TRIGGER_RADIUS)
+        alpha_surf = pg.Surface((det_r * 2, det_r * 2), pg.SRCALPHA)
+        ring_alpha = int(30 + 20 * (math.sin(self._pulse) + 1) / 2)
+        pg.draw.circle(alpha_surf, (*col, ring_alpha),
+                       (det_r, det_r), det_r, width=1)
+        surf.blit(alpha_surf, (int(self.pos.x) - det_r, int(self.pos.y) - det_r))
 
 class WeaponPickup(pg.sprite.Sprite):
     # Ground item that grants a temporary weapon buff

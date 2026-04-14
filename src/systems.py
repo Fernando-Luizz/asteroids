@@ -8,7 +8,7 @@ import random
 import pygame as pg
 
 import config as C
-from sprites import Asteroid, Explosion, ShieldPickup, Ship, UFO, WeaponPickup
+from sprites import Asteroid, Explosion, ShieldPickup, Ship, UFO, WeaponPickup, Mine
 from utils import Vec, rand_edge_pos, rand_unit_vec
 
 
@@ -21,22 +21,22 @@ class World:
         self.asteroids = pg.sprite.Group()
         self.ufos = pg.sprite.Group()
         self.pickups = pg.sprite.Group()
-        self.explosions = pg.sprite.Group()
-        self.all_sprites = pg.sprite.Group(self.ship)
         self.weapon_pickups = pg.sprite.Group()
-        self._weapon_spawn_cap = C.WEAPON_MAX_PICKUPS
+        self.mines = pg.sprite.Group()
+        self.all_sprites = pg.sprite.Group(self.ship)
         self.score = 0
         self.lives = C.START_LIVES
         self.wave = 0
         self.wave_cool = C.WAVE_DELAY
         self.safe = C.SAFE_SPAWN_TIME
         self.ufo_timer = C.UFO_SPAWN_EVERY
-        self.game_over = False  # Sinaliza fim de jogo para a cena principal
+        self.game_over = False
         self.combo_timer = 0.0
         self.combo_chain = 0
         self._shield_quota_remaining = 0
         self._shield_spawn_cap = 2
         self._shield_spawn_timer = 0.0
+        self._weapon_spawn_cap = C.WEAPON_MAX_PICKUPS
         
 
     def start_wave(self):
@@ -160,6 +160,14 @@ class World:
         for b in bullets:
             self.bullets.add(b)
             self.all_sprites.add(b)
+    def try_drop_mine(self):
+        # Spawns a mine at the ship's position, subject to the active mine cap
+        if len(self.mines) >= C.MINE_MAX_ACTIVE:
+            return
+        mine = self.ship.drop_mine()
+        if mine:
+            self.mines.add(mine)
+            self.all_sprites.add(mine)
 
     def hyperspace(self):
         # Trigger the ship hyperspace action and apply its score penalty.
@@ -199,17 +207,18 @@ class World:
         if not self.ufos and self.ufo_timer <= 0:
             self.spawn_ufo()
             self.ufo_timer = C.UFO_SPAWN_EVERY
-
+ 
         self.handle_collisions()
         self._pickup_collisions()
         self._weapon_pickup_collisions()
+        self._handle_mine_collisions()
         self._tick_shield_pickup_spawns(dt)
-
+ 
         if self.combo_timer > 0:
             self.combo_timer -= dt
             if self.combo_timer <= 0:
                 self._reset_combo()
-
+ 
         if not self.asteroids and self.wave_cool <= 0:
             self.start_wave()
             self.wave_cool = C.WAVE_DELAY
@@ -227,7 +236,7 @@ class World:
         )
         for ast, _ in hits.items():
             self.split_asteroid(ast)
-
+ 
         ufo_hits = pg.sprite.groupcollide(
             self.asteroids,
             self.ufo_bullets,
@@ -237,7 +246,7 @@ class World:
         )
         for ast, _ in ufo_hits.items():
             self.split_asteroid(ast)
-
+ 
         if self.ship.invuln <= 0 and self.safe <= 0 and self.ship.shield_time <= 0:
             for ast in self.asteroids:
                 if (ast.pos - self.ship.pos).length() < (ast.r + self.ship.r):
@@ -252,7 +261,7 @@ class World:
                     bullet.kill()
                     self.ship_die()
                     break
-
+ 
         for ufo in list(self.ufos):
             for b in list(self.bullets):
                 if (ufo.pos - b.pos).length() < (ufo.r + b.r):
@@ -261,19 +270,26 @@ class World:
                     self._add_combo_kill_score(score)
                     ufo.kill()
                     b.kill()
-
+ 
     def _pickup_collisions(self):
         for p in list(self.pickups):
             if (p.pos - self.ship.pos).length() < (p.r + self.ship.r):
                 self.ship.shield_time = max(self.ship.shield_time, C.SHIELD_DURATION)
                 p.kill()
-
+ 
+    def _weapon_pickup_collisions(self):
+        for wp in list(self.weapon_pickups):
+            if (wp.pos - self.ship.pos).length() < (wp.r + self.ship.r):
+                self.ship.apply_weapon(wp.mode)
+                wp.kill()
+ 
     def split_asteroid(self, ast: Asteroid):
         # Destroy an asteroid, award score, and spawn its smaller fragments.
         self._add_combo_kill_score(C.AST_SIZES[ast.size]["score"])
         split = C.AST_SIZES[ast.size]["split"]
         pos = Vec(ast.pos)
         was_explosive = ast.explosive
+        size = ast.size
         ast.kill()
         for s in split:
             dirv = rand_unit_vec()
@@ -281,15 +297,15 @@ class World:
             self.spawn_asteroid(pos, dirv * speed, s)
         if was_explosive:
             self._trigger_explosion(pos)
-        if ast.size == "L":                     
-            self._try_spawn_weapon_pickup(pos)  
-
+        if size == "L":
+            self._try_spawn_weapon_pickup(pos)
+ 
     def ship_die(self):
         # Remove uma vida; sinaliza game over ou reposiciona a nave.
         self._reset_combo()
         self.lives -= 1
         if self.lives <= 0:
-            self.game_over = True  # Game.run() detecta e muda de cena
+            self.game_over = True
             return
         self.ship.pos.xy = (C.WIDTH / 2, C.HEIGHT / 2)
         self.ship.vel.xy = (0, 0)
@@ -297,30 +313,97 @@ class World:
         self.ship.shield_time = 0.0
         self.ship.invuln = C.SAFE_SPAWN_TIME
         self.safe = C.SAFE_SPAWN_TIME
-
     def draw(self, surf: pg.Surface, font: pg.font.Font):
         # Draw all world entities and the current HUD information.
         for spr in self.all_sprites:
             spr.draw(surf)
-
+ 
         pg.draw.line(surf, (60, 60, 60), (0, 50), (C.WIDTH, 50), width=1)
         txt = f"SCORE {self.score:06d}   LIVES {self.lives}   WAVE {self.wave}"
         label = font.render(txt, True, C.WHITE)
         surf.blit(label, (10, 10))
-
+ 
         if self.combo_chain >= 2 and self.combo_timer > 0:
             cl = font.render(f"COMBO x{self.combo_chain}", True, C.COMBO_COLOR)
             surf.blit(cl, (10, 28))
             bw = max(1, int(100 * (self.combo_timer / C.COMBO_WINDOW)))
             pg.draw.rect(surf, C.COMBO_COLOR, (10, 48, bw, 4))
 
-        # HUD do power-up de arma
+        # HUD do power-up de arma 
         if self.ship.weapon_mode and self.ship.weapon_time > 0:
             mode_names = {"double": "DUPLO", "triple": "TRIPLO", "rapid": "RAPIDO"}
             name = mode_names.get(self.ship.weapon_mode, "")
             wl = font.render(f"ARMA: {name}  {self.ship.weapon_time:.1f}s",
-                            True, C.WEAPON_PICKUP_COLOR)
+                             True, C.WEAPON_PICKUP_COLOR)
             surf.blit(wl, (C.WIDTH - wl.get_width() - 10, 10))
             bw = max(1, int(150 * (self.ship.weapon_time / C.WEAPON_DURATION)))
             pg.draw.rect(surf, C.WEAPON_PICKUP_COLOR,
-                        (C.WIDTH - bw - 10, 48, bw, 4))
+                         (C.WIDTH - bw - 10, 48, bw, 4))
+        # HUD de minas 
+        mine_count = C.MINE_MAX_ACTIVE - len(self.mines)
+        mine_col = C.MINE_COLOR if self.ship.mine_cool <= 0 else C.GRAY
+        ml = font.render(f"MINAS: {mine_count}/{C.MINE_MAX_ACTIVE}",
+                         True, mine_col)
+        surf.blit(ml, (C.WIDTH // 2 - ml.get_width() // 2, 10))
+    # ------------------------------------------------------------------
+    # Mina espacial
+    # ------------------------------------------------------------------
+ 
+    def _trigger_explosion(self, pos: Vec):
+        """Detona onda de choque: destrói asteroides/UFOs no raio e cria visual."""
+        exp = Explosion(pos)
+        self.all_sprites.add(exp)
+        for ast in list(self.asteroids):
+            if (ast.pos - pos).length() < C.EXPLOSION_RADIUS:
+                self.split_asteroid(ast)
+        if self.ship.invuln <= 0 and self.ship.shield_time <= 0 and self.safe <= 0:
+            if (self.ship.pos - pos).length() < C.EXPLOSION_RADIUS:
+                self.ship_die()
+ 
+    def _trigger_mine_explosion(self, pos: Vec):
+        """Detona a mina: raio próprio, também destrói UFOs e causa dano em área."""
+        exp = Explosion(pos)
+        # Reutiliza visual de Explosion mas com raio maior da mina
+        exp.r = C.MINE_EXPLOSION_RADIUS
+        exp.rect = pg.Rect(0, 0, exp.r * 2, exp.r * 2)
+        exp.rect.center = pos
+        self.all_sprites.add(exp)
+ 
+        # Destrói asteroides no raio
+        for ast in list(self.asteroids):
+            if (ast.pos - pos).length() < C.MINE_EXPLOSION_RADIUS:
+                self.split_asteroid(ast)
+ 
+        # Destrói UFOs no raio e dá pontos
+        for ufo in list(self.ufos):
+            if (ufo.pos - pos).length() < C.MINE_EXPLOSION_RADIUS:
+                score = C.UFO_SMALL["score"] if ufo.small else C.UFO_BIG["score"]
+                self._add_combo_kill_score(score)
+                ufo.kill()
+ 
+        # Dano na nave se não protegida
+        if self.ship.invuln <= 0 and self.ship.shield_time <= 0 and self.safe <= 0:
+            if (self.ship.pos - pos).length() < C.MINE_EXPLOSION_RADIUS:
+                self.ship_die()
+ 
+    def _handle_mine_collisions(self):
+        """Verifica se inimigos entraram no raio de detecção de alguma mina."""
+        for mine in list(self.mines):
+            if mine.exploded:
+                # A animação já começou; processa a explosão uma única vez
+                mine.exploded = False
+                self._trigger_mine_explosion(mine.pos)
+                continue
+ 
+            # Proximidade com asteroides
+            for ast in self.asteroids:
+                if (ast.pos - mine.pos).length() < (C.MINE_TRIGGER_RADIUS + ast.r):
+                    mine.detonate()
+                    break
+ 
+            # Proximidade com UFOs
+            if not mine.exploded:
+                for ufo in self.ufos:
+                    if (ufo.pos - mine.pos).length() < (C.MINE_TRIGGER_RADIUS + ufo.r):
+                        mine.detonate()
+                        break
