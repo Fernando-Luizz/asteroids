@@ -1,4 +1,3 @@
-
 # ASTEROIDE SINGLEPLAYER v1.0
 # This file manages the application loop, scenes, input handling, and screen drawing.
 
@@ -55,6 +54,8 @@ class Game:
                             self.world.try_fire()
                         if e.key == pg.K_LSHIFT:
                             self.world.hyperspace()
+                        if e.key == pg.K_z:          # ← mina espacial
+                            self.world.try_drop_mine()
                     elif self.scene.name == "menu":
                         self.world = World()
                         self.scene = Scene("play")
@@ -111,7 +112,7 @@ class Game:
         text(self.screen, self.big, "ASTEROIDS",
              C.WIDTH // 2 - 150, 180)
         text(self.screen, self.font,
-             "Setas: virar/acelerar  Espaço: tiro  Shift: hiper",
-             160, 300)
+             "Setas: virar/acelerar  Espaco: tiro  Shift: hiper  Z: mina",
+             130, 300)
         text(self.screen, self.font,
              "Pressione qualquer tecla...", 260, 360)
