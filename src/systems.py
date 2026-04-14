@@ -8,7 +8,7 @@ import random
 import pygame as pg
 
 import config as C
-from sprites import Asteroid, ShieldPickup, Ship, UFO, Explosion
+from sprites import Asteroid, Explosion, ShieldPickup, Ship, UFO, WeaponPickup
 from utils import Vec, rand_edge_pos, rand_unit_vec
 
 
@@ -23,6 +23,8 @@ class World:
         self.pickups = pg.sprite.Group()
         self.explosions = pg.sprite.Group()
         self.all_sprites = pg.sprite.Group(self.ship)
+        self.weapon_pickups = pg.sprite.Group()
+        self._weapon_spawn_cap = C.WEAPON_MAX_PICKUPS
         self.score = 0
         self.lives = C.START_LIVES
         self.wave = 0
@@ -91,6 +93,20 @@ class World:
             self._shield_spawn_timer = uniform(
                 C.SHIELD_SPAWN_DELAY_MIN, C.SHIELD_SPAWN_DELAY_MAX
             )
+    def _try_spawn_weapon_pickup(self, pos: Vec):
+        # Tries to drop a WeaponPickup near the specified coordinates upon Large asteroid destruction.
+        import random
+        if random.random() > C.WEAPON_PICKUP_CHANCE:
+            return
+        if len(self.weapon_pickups) >= self._weapon_spawn_cap:
+            return
+        # Verifica separação mínima
+        for p in self.weapon_pickups:
+            if (p.pos - pos).length() < C.WEAPON_PICKUP_SEPARATION:
+                return
+        wp = WeaponPickup(pos)
+        self.weapon_pickups.add(wp)
+        self.all_sprites.add(wp)
 
     def spawn_asteroid(self, pos: Vec, vel: Vec, size: str, explosive: bool = False):
         # Create an asteroid and register it in the world groups.
@@ -135,10 +151,13 @@ class World:
 
     def try_fire(self):
         # Fire a player bullet when the bullet cap allows it.
-        if len(self.bullets) >= C.MAX_BULLETS:
+        max_b = (C.WEAPON_RAPID_MAX_BULLETS
+                if self.ship.weapon_mode == "rapid"
+                else C.MAX_BULLETS)
+        if len(self.bullets) >= max_b:
             return
-        b = self.ship.fire()
-        if b:
+        bullets = self.ship.fire()
+        for b in bullets:
             self.bullets.add(b)
             self.all_sprites.add(b)
 
@@ -161,6 +180,11 @@ class World:
         self.combo_timer = C.COMBO_WINDOW
         self.score += base * self.combo_chain
 
+    def _weapon_pickup_collisions(self):
+        for wp in list(self.weapon_pickups):
+            if (wp.pos - self.ship.pos).length() < (wp.r + self.ship.r):
+                self.ship.apply_weapon(wp.mode)
+                wp.kill()
     def update(self, dt: float, keys):
         # Update the world simulation, timers, enemy behavior, and progression.
         self.ship.control(keys, dt)
@@ -178,6 +202,7 @@ class World:
 
         self.handle_collisions()
         self._pickup_collisions()
+        self._weapon_pickup_collisions()
         self._tick_shield_pickup_spawns(dt)
 
         if self.combo_timer > 0:
@@ -256,6 +281,8 @@ class World:
             self.spawn_asteroid(pos, dirv * speed, s)
         if was_explosive:
             self._trigger_explosion(pos)
+        if ast.size == "L":                     
+            self._try_spawn_weapon_pickup(pos)  
 
     def ship_die(self):
         # Remove uma vida; sinaliza game over ou reposiciona a nave.
@@ -280,8 +307,20 @@ class World:
         txt = f"SCORE {self.score:06d}   LIVES {self.lives}   WAVE {self.wave}"
         label = font.render(txt, True, C.WHITE)
         surf.blit(label, (10, 10))
+
         if self.combo_chain >= 2 and self.combo_timer > 0:
             cl = font.render(f"COMBO x{self.combo_chain}", True, C.COMBO_COLOR)
             surf.blit(cl, (10, 28))
             bw = max(1, int(100 * (self.combo_timer / C.COMBO_WINDOW)))
             pg.draw.rect(surf, C.COMBO_COLOR, (10, 48, bw, 4))
+
+        # HUD do power-up de arma
+        if self.ship.weapon_mode and self.ship.weapon_time > 0:
+            mode_names = {"double": "DUPLO", "triple": "TRIPLO", "rapid": "RAPIDO"}
+            name = mode_names.get(self.ship.weapon_mode, "")
+            wl = font.render(f"ARMA: {name}  {self.ship.weapon_time:.1f}s",
+                            True, C.WEAPON_PICKUP_COLOR)
+            surf.blit(wl, (C.WIDTH - wl.get_width() - 10, 10))
+            bw = max(1, int(150 * (self.ship.weapon_time / C.WEAPON_DURATION)))
+            pg.draw.rect(surf, C.WEAPON_PICKUP_COLOR,
+                        (C.WIDTH - bw - 10, 48, bw, 4))
